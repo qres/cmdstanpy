@@ -21,6 +21,8 @@ from typing import (
 import numpy as np
 import pandas as pd
 
+import polars as pl
+
 try:
     import xarray as xr
 
@@ -1223,6 +1225,9 @@ class CmdStanGQ:
 
     def _assemble_generated_quantities(self) -> None:
         # use numpy loadtxt
+        # import time
+        # print("Start    _assemble_generated_quantities")
+        # start = time.time()
         warmup = self.mcmc_sample.metadata.cmdstan_config['save_warmup']
         num_draws = self.mcmc_sample.draws(inc_warmup=warmup).shape[0]
         gq_sample: np.ndarray = np.empty(
@@ -1231,12 +1236,34 @@ class CmdStanGQ:
             order='F',
         )
         for chain in range(self.chains):
-            with open(self.runset.csv_files[chain], 'r') as fd:
-                lines = (line for line in fd if not line.startswith('#'))
-                gq_sample[:, chain, :] = np.loadtxt(
-                    lines, dtype=np.ndarray, ndmin=2, skiprows=1, delimiter=','
-                )
+            # with open(self.runset.csv_files[chain], 'r') as fd:
+            #     lines = (line for line in fd if not line.startswith('#'))
+            #     gq_sample[:, chain, :] = np.loadtxt(
+            #         lines, dtype=float, ndmin=2, skiprows=1, delimiter=','
+            #     )
+            # with open(self.runset.csv_files[chain], 'r') as fd:
+            #     lines = (line for line in fd if not line.startswith('#'))
+            #     gq_sample[:, chain, :] = np.loadtxt(
+            #         lines, dtype=np.ndarray, ndmin=2, skiprows=1, delimiter=','
+            #     )
+            # gq_sample[:, chain, :] = pd.read_csv(self.runset.csv_files[chain], 
+            #     sep=',', header=0, engine='c', quoting=3, comment='#', 
+            #     encoding='ascii', float_precision='high'
+            # ).values
+            
+            # gq_sample[:, chain, :] = pd.read_csv(self.runset.csv_files[chain], 
+            #     sep=',', header=0, engine='c', quoting=3, comment='#', 
+            #     encoding='ascii', float_precision='round_trip'
+            # ).values
+            
+            # muuuch faster
+            gq_sample[:, chain, :] = pl.read_csv(self.runset.csv_files[chain], 
+                comment_char='#', n_threads=None, infer_schema_length=1, 
+                dtypes=[pl.Float64]*len(self.column_names),
+                rechunk=False # we copy the result anyways...
+            ).to_numpy() # ...here: clones data
         self._draws = gq_sample
+        # print("Duration _assemble_generated_quantities:", time.time() - start)
 
     def save_csvfiles(self, dir: Optional[str] = None) -> None:
         """
